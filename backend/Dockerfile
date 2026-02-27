@@ -21,6 +21,7 @@ RUN npm install --production
 
 # Copy built app
 COPY --from=builder /app/dist ./dist
+COPY schema.sql ./schema.sql
 
 EXPOSE 3000
 
