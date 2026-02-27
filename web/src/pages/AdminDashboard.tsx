@@ -1,16 +1,42 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { api } from '@/services/api';
 import type { Event } from '@/types';
 import { format } from 'date-fns';
-import { Calendar, MapPin, Plus, Users, ArrowRight } from 'lucide-react';
+import { Calendar, MapPin, Plus, Users, Edit, Trash2, LogOut } from 'lucide-react';
 
 export default function AdminDashboard() {
+    const navigate = useNavigate();
     const [events, setEvents] = useState<Event[]>([]);
+    const [isDeleting, setIsDeleting] = useState<string | null>(null);
 
     useEffect(() => {
-        api.get('/events').then((res: { data: Event[] }) => setEvents(res.data));
+        fetchEvents();
     }, []);
+
+    const fetchEvents = () => {
+        api.get('/events').then((res: { data: Event[] }) => setEvents(res.data));
+    };
+
+    const handleDelete = async (id: string) => {
+        if (!window.confirm('Are you sure you want to delete this event?')) return;
+
+        setIsDeleting(id);
+        try {
+            await api.delete(`/events/${id}`);
+            setEvents(events.filter(e => e.id !== id));
+        } catch (error) {
+            console.error('Failed to delete event:', error);
+            alert('Failed to delete event');
+        } finally {
+            setIsDeleting(null);
+        }
+    };
+
+    const handleLogout = () => {
+        localStorage.removeItem('adminToken');
+        navigate('/admin/login');
+    };
 
     return (
         <div className="min-h-screen bg-background">
@@ -25,6 +51,12 @@ export default function AdminDashboard() {
                         <Link to="/events" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
                             View Site →
                         </Link>
+                        <button
+                            onClick={handleLogout}
+                            className="text-sm text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1.5"
+                        >
+                            <LogOut className="w-4 h-4" /> Logout
+                        </button>
                         <Link
                             to="/admin/create"
                             className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-5 py-2.5 text-sm font-semibold hover:opacity-90 transition-opacity"
@@ -83,15 +115,25 @@ export default function AdminDashboard() {
                                     <Link
                                         to={`/admin/events/${event.id}/registrations`}
                                         className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors border border-border px-3 py-1.5"
+                                        title="View Registrations"
                                     >
-                                        <Users className="w-3 h-3" /> Registrations
+                                        <Users className="w-4 h-4" />
                                     </Link>
                                     <Link
-                                        to={`/events/${event.id}`}
-                                        className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                                        to={`/admin/events/${event.id}/edit`}
+                                        className="inline-flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-700 transition-colors border border-blue-200 px-3 py-1.5 bg-blue-50"
+                                        title="Edit Event"
                                     >
-                                        <ArrowRight className="w-3 h-3" />
+                                        <Edit className="w-4 h-4" />
                                     </Link>
+                                    <button
+                                        onClick={() => handleDelete(event.id)}
+                                        disabled={isDeleting === event.id}
+                                        className="inline-flex items-center gap-1.5 text-xs text-red-600 hover:text-red-700 transition-colors border border-red-200 px-3 py-1.5 bg-red-50 disabled:opacity-50"
+                                        title="Delete Event"
+                                    >
+                                        <Trash2 className="w-4 h-4" />
+                                    </button>
                                 </div>
                             </div>
                         ))}

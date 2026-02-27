@@ -5,17 +5,27 @@ import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import jwt from 'jsonwebtoken';
 import { query } from './db';
 
 // =======================
 // Environment Validation
 // =======================
-const REQUIRED_ENV = ['PORT', 'S3_BUCKET', 'S3_REGION', 'CLOUDFRONT_DOMAIN', 'DB_HOST', 'DB_USER', 'DB_PASSWORD', 'DB_NAME'] as const;
+const REQUIRED_ENV = [
+    'PORT', 'S3_BUCKET', 'S3_REGION', 'CLOUDFRONT_DOMAIN',
+    'DB_HOST', 'DB_USER', 'DB_PASSWORD', 'DB_NAME',
+    'ADMIN_USERNAME', 'ADMIN_PASSWORD'
+] as const;
+
 const missing = REQUIRED_ENV.filter((key) => !process.env[key]);
 if (missing.length > 0) {
     console.error(`❌ Missing required environment variables: ${missing.join(', ')}`);
     process.exit(1);
 }
+
+const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret_for_dev_only';
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME!;
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD!;
 
 const PORT = process.env.PORT!;
 const S3_BUCKET = process.env.S3_BUCKET!;
@@ -27,6 +37,24 @@ const s3Client = new S3Client({ region: S3_REGION });
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// =======================
+// Auth Middleware
+// =======================
+const requireAdmin = (req: Request, res: Response, next: express.NextFunction) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    try {
+        jwt.verify(token, JWT_SECRET);
+        next();
+    } catch (err) {
+        return res.status(401).json({ error: 'Invalid token' });
+    }
+};
 
 // =======================
 // Database Initialization
@@ -103,7 +131,16 @@ app.post('/api/events/:id/register', async (req: Request, res: Response) => {
 // Admin Routes
 // =======================
 
-app.post('/api/events', async (req: Request, res: Response) => {
+app.post('/api/admin/login', (req: Request, res: Response) => {
+    const { username, password } = req.body;
+    if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
+        const token = jwt.sign({ role: 'admin' }, JWT_SECRET, { expiresIn: '24h' });
+        return res.json({ token });
+    }
+    return res.status(401).json({ error: 'Invalid credentials' });
+});
+
+app.post('/api/events', requireAdmin, async (req: Request, res: Response) => {
     try {
         const { title, description, date, location, imageUrl } = req.body;
         if (!title || !date || !location || !imageUrl) {
@@ -123,7 +160,7 @@ app.post('/api/events', async (req: Request, res: Response) => {
     }
 });
 
-app.put('/api/events/:id', async (req: Request, res: Response) => {
+app.put('/api/events/:id', requireAdmin, async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
         const { title, description, date, location, imageUrl } = req.body;
@@ -141,6 +178,21 @@ app.put('/api/events/:id', async (req: Request, res: Response) => {
     } catch (error) {
         console.error('Failed to update event', error);
         res.status(500).json({ error: 'Failed to update event' });
+    }
+});
+
+app.delete('/api/events/:id', requireAdmin, async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        const result = await query('DELETE FROM events WHERE id = $1 RETURNING id', [id]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Event not found' });
+        }
+        res.status(204).send();
+    } catch (error) {
+        console.error('Failed to delete event', error);
+        res.status(500).json({ error: 'Failed to delete event' });
     }
 });
 
@@ -166,7 +218,7 @@ app.get('/api/events/:id/registrations', async (req: Request, res: Response) => 
 // Upload Routes
 // =======================
 
-app.get('/api/uploads/presigned-url', async (req: Request, res: Response) => {
+app.get('/api/uploads/presigned-url', requireAdmin, async (req: Request, res: Response) => {
     try {
         const fileName = req.query.fileName as string;
         const fileType = req.query.fileType as string;

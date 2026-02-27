@@ -4,6 +4,8 @@ import EventDetail from './pages/EventDetail';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminCreateEvent from './pages/AdminCreateEvent';
 import AdminEventRegistrations from './pages/AdminEventRegistrations';
+import AdminLogin from './pages/AdminLogin';
+import ProtectedRoute from './components/ProtectedRoute';
 
 function App() {
   return (
@@ -12,9 +14,15 @@ function App() {
         <Route path="/" element={<Navigate to="/events" replace />} />
         <Route path="/events" element={<EventList />} />
         <Route path="/events/:id" element={<EventDetail />} />
-        <Route path="/admin" element={<AdminDashboard />} />
-        <Route path="/admin/create" element={<AdminCreateEvent />} />
-        <Route path="/admin/events/:id/registrations" element={<AdminEventRegistrations />} />
+
+        <Route path="/admin/login" element={<AdminLogin />} />
+
+        <Route element={<ProtectedRoute />}>
+          <Route path="/admin" element={<AdminDashboard />} />
+          <Route path="/admin/create" element={<AdminCreateEvent />} />
+          <Route path="/admin/events/:id/edit" element={<AdminCreateEvent />} />
+          <Route path="/admin/events/:id/registrations" element={<AdminEventRegistrations />} />
+        </Route>
       </Routes>
     </BrowserRouter>
   );
