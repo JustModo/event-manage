@@ -76,6 +76,10 @@ async function initDb() {
 // User Routes
 // =======================
 
+app.get('/health', (req: Request, res: Response) => {
+    res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
 app.get('/api/events', async (req: Request, res: Response) => {
     try {
         const result = await query('SELECT id, title, description, date, location, image_url as "imageUrl" FROM events ORDER BY date ASC');
