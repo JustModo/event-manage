@@ -1,0 +1,14 @@
+services:
+  web:
+    build:
+      context: ./web
+      args:
+        - VITE_API_URL=${VITE_API_URL}
+    image: eventsphere-web:latest
+    ports:
+      - "80:80"
+    environment:
+      - VITE_API_URL=${VITE_API_URL}
+    env_file:
+      - .env
+    restart: unless-stopped
