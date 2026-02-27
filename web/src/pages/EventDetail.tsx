@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { format } from 'date-fns';
 import { Calendar, MapPin, ArrowLeft, Check } from 'lucide-react';
+import 'react-quill-new/dist/quill.snow.css';
 
 export default function EventDetail() {
     const { id } = useParams();
@@ -78,8 +79,11 @@ export default function EventDetail() {
                     {/* Description */}
                     <div className="lg:col-span-3">
                         <h2 className="text-lg font-semibold mb-4">About This Event</h2>
-                        <div className="border-t border-border pt-6">
-                            <p className="text-muted-foreground leading-relaxed text-base">{event.description}</p>
+                        <div className="border-t border-border pt-6 ql-snow">
+                            <div
+                                className="ql-editor px-0 text-muted-foreground leading-relaxed text-base"
+                                dangerouslySetInnerHTML={{ __html: event.description }}
+                            />
                         </div>
                     </div>
 

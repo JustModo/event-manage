@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { api } from '@/services/api';
 import type { Event } from '@/types';
-import { format } from 'date-fns';
-import { Calendar, MapPin, Plus, Users, Edit, Trash2, LogOut } from 'lucide-react';
+import { isPast, format } from 'date-fns';
+import { Calendar, MapPin, Plus, Users, Edit, Trash2, LogOut, CheckCircle2, Clock } from 'lucide-react';
 
 export default function AdminDashboard() {
     const navigate = useNavigate();
@@ -38,6 +38,9 @@ export default function AdminDashboard() {
         navigate('/admin/login');
     };
 
+    const upcomingEventsCount = events.filter(e => !isPast(new Date(e.date))).length;
+    const pastEventsCount = events.length - upcomingEventsCount;
+
     return (
         <div className="min-h-screen bg-background">
             {/* Header */}
@@ -68,8 +71,21 @@ export default function AdminDashboard() {
             </header>
 
             {/* Stats bar */}
-            <div className="border-b border-border px-6 md:px-16 py-4">
-                <span className="text-sm text-muted-foreground">{events.length} total events</span>
+            <div className="bg-muted/30 border-b border-border">
+                <div className="px-6 md:px-16 py-8 grid grid-cols-1 sm:grid-cols-3 gap-6">
+                    <div className="border border-border bg-background p-6 shadow-sm">
+                        <h3 className="text-sm font-medium text-muted-foreground mb-2">Total Events</h3>
+                        <p className="text-3xl font-bold">{events.length}</p>
+                    </div>
+                    <div className="border border-border bg-background p-6 shadow-sm">
+                        <h3 className="text-sm font-medium text-muted-foreground mb-2">Upcoming</h3>
+                        <p className="text-3xl font-bold text-green-600">{upcomingEventsCount}</p>
+                    </div>
+                    <div className="border border-border bg-background p-6 shadow-sm">
+                        <h3 className="text-sm font-medium text-muted-foreground mb-2">Past Events</h3>
+                        <p className="text-3xl font-bold text-muted-foreground">{pastEventsCount}</p>
+                    </div>
+                </div>
             </div>
 
             {/* Event List */}
@@ -96,7 +112,18 @@ export default function AdminDashboard() {
 
                                 {/* Info */}
                                 <div className="flex-1 min-w-0">
-                                    <h3 className="text-base font-semibold mb-1 truncate">{event.title}</h3>
+                                    <div className="flex items-center gap-3 mb-1">
+                                        <h3 className="text-base font-semibold truncate">{event.title}</h3>
+                                        {isPast(new Date(event.date)) ? (
+                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-secondary text-secondary-foreground">
+                                                <Clock className="w-3 h-3" /> Past
+                                            </span>
+                                        ) : (
+                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-100 text-green-700 border border-green-200">
+                                                <CheckCircle2 className="w-3 h-3" /> Upcoming
+                                            </span>
+                                        )}
+                                    </div>
                                     <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground mb-2">
                                         <span className="flex items-center gap-1">
                                             <Calendar className="w-3 h-3" />
@@ -107,7 +134,9 @@ export default function AdminDashboard() {
                                             {event.location}
                                         </span>
                                     </div>
-                                    <p className="text-sm text-muted-foreground line-clamp-1">{event.description}</p>
+                                    <p className="text-sm text-muted-foreground line-clamp-1">
+                                        {event.description?.replace(/<[^>]*>?/gm, '') || ''}
+                                    </p>
                                 </div>
 
                                 {/* Actions */}

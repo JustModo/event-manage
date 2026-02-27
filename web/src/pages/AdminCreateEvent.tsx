@@ -6,63 +6,93 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ArrowLeft, Upload, X, Image as ImageIcon, Loader2 } from 'lucide-react';
 
+import { useForm, Controller } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
+
+import ReactQuill from 'react-quill-new';
+import 'react-quill-new/dist/quill.snow.css';
+
+const eventSchema = z.object({
+    title: z.string().min(3, "Title must be at least 3 characters").max(100, "Title is too long"),
+    description: z.string().optional(),
+    date: z.string()
+        .min(1, "Date is required")
+        .refine((val) => !isNaN(Date.parse(val)), { message: "Invalid date" })
+        .refine((val) => new Date(val) > new Date(), { message: "Event date cannot be in the past" }),
+    location: z.string().min(3, "Location must be at least 3 characters").max(200, "Location is too long"),
+});
+
+type EventFormValues = z.infer<typeof eventSchema>;
+
 export default function AdminCreateEvent() {
     const { id } = useParams();
     const navigate = useNavigate();
     const isEditMode = Boolean(id);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const [title, setTitle] = useState('');
-    const [description, setDescription] = useState('');
-    const [date, setDate] = useState('');
-    const [location, setLocation] = useState('');
+    const {
+        register,
+        handleSubmit: hookFormSubmit,
+        control,
+        setValue,
+        formState: { errors }
+    } = useForm<EventFormValues>({
+        resolver: zodResolver(eventSchema),
+        mode: 'onChange',
+        defaultValues: {
+            title: '',
+            description: '',
+            date: '',
+            location: '',
+        }
+    });
 
-    // For manual URL fallback or existing image from backend
+    // Custom image state (since it involves S3 uploading before form submission)
     const [imageUrl, setImageUrl] = useState('');
-
-    // For newly selected file that hasn't been uploaded yet
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [previewUrl, setPreviewUrl] = useState<string>('');
+    const [imageError, setImageError] = useState('');
 
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [uploadProgress, setUploadProgress] = useState('');
     const [dragOver, setDragOver] = useState(false);
 
     useEffect(() => {
+        const fetchEvent = async () => {
+            try {
+                const { data } = await api.get(`/events/${id}`);
+                setValue('title', data.title);
+                setValue('description', data.description || '');
+                setValue('location', data.location);
+
+                // Format datetime-local string (YYYY-MM-DDThh:mm)
+                if (data.date) {
+                    const dateObj = new Date(data.date);
+                    const tzOffset = dateObj.getTimezoneOffset() * 60000;
+                    const localISOTime = (new Date(dateObj.getTime() - tzOffset)).toISOString().slice(0, 16);
+                    setValue('date', localISOTime);
+                }
+
+                setImageUrl(data.imageUrl);
+            } catch (error) {
+                console.error('Failed to fetch event details', error);
+                alert('Failed to load event for editing');
+                navigate('/admin');
+            }
+        };
+
         if (isEditMode) {
             fetchEvent();
         }
-    }, [id]);
-
-    const fetchEvent = async () => {
-        try {
-            const { data } = await api.get(`/events/${id}`);
-            setTitle(data.title);
-            setDescription(data.description || '');
-
-            // Format datetime-local string (YYYY-MM-DDThh:mm)
-            if (data.date) {
-                const dateObj = new Date(data.date);
-                // Adjust for local timezone offset to display correctly in input field
-                const tzOffset = dateObj.getTimezoneOffset() * 60000;
-                const localISOTime = (new Date(dateObj.getTime() - tzOffset)).toISOString().slice(0, 16);
-                setDate(localISOTime);
-            }
-
-            setLocation(data.location);
-            setImageUrl(data.imageUrl);
-        } catch (error) {
-            console.error('Failed to fetch event details', error);
-            alert('Failed to load event for editing');
-            navigate('/admin');
-        }
-    };
+    }, [id, isEditMode, navigate, setValue]);
 
     const processFileSelection = (file: File) => {
         if (!file.type.startsWith('image/')) {
             alert('Please select an image file');
             return;
         }
+        setImageError('');
         setSelectedFile(file);
         setPreviewUrl(URL.createObjectURL(file));
         setImageUrl(''); // Clear manual URL if they select a file
@@ -92,18 +122,17 @@ export default function AdminCreateEvent() {
         if (previewUrl) URL.revokeObjectURL(previewUrl);
         setPreviewUrl('');
         setImageUrl('');
+        setImageError('');
         if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
     const uploadFileToS3 = async (file: File): Promise<string> => {
         setUploadProgress('Getting upload URL...');
-        // 1. Get presigned URL from backend
         const { data } = await api.get('/uploads/presigned-url', {
             params: { fileName: file.name, fileType: file.type },
         });
 
         setUploadProgress('Uploading to S3...');
-        // 2. Upload directly to S3 using presigned URL
         await fetch(data.uploadUrl, {
             method: 'PUT',
             body: file,
@@ -113,28 +142,28 @@ export default function AdminCreateEvent() {
         return data.publicUrl;
     };
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
+    const onSubmit = async (data: EventFormValues) => {
+        setImageError('');
         setIsSubmitting(true);
         setUploadProgress('Saving event...');
 
         try {
             let finalImageUrl = imageUrl;
 
-            // If the user selected a new file, upload it to S3 first
             if (selectedFile) {
                 finalImageUrl = await uploadFileToS3(selectedFile);
             }
 
             if (!finalImageUrl) {
-                throw new Error("An image is required. Please upload an image or provide a URL.");
+                setImageError("An image is required. Please upload an image or provide a URL.");
+                throw new Error("Missing Image");
             }
 
             const payload = {
-                title,
-                description,
-                date: new Date(date).toISOString(),
-                location,
+                title: data.title,
+                description: data.description,
+                date: new Date(data.date).toISOString(),
+                location: data.location,
                 imageUrl: finalImageUrl,
             };
 
@@ -144,20 +173,22 @@ export default function AdminCreateEvent() {
                 await api.post('/events', payload);
             }
             navigate('/admin');
-        } catch (error: any) {
+        } catch (error) {
+            const err = error as { message?: string };
             console.error('Failed to save event', error);
-            alert(error.message || 'Failed to save the event. Please ensure all inputs are correct.');
+            if (err.message !== "Missing Image") {
+                alert(err.message || 'Failed to save the event. Please ensure all inputs are correct.');
+            }
             setUploadProgress('');
         } finally {
             setIsSubmitting(false);
         }
     };
 
-    // Determine what image to show in the preview area
     const displayImage = previewUrl || imageUrl;
 
     return (
-        <div className="min-h-screen bg-background">
+        <div className="min-h-screen bg-background pb-20">
             {/* Header */}
             <header className="border-b border-border">
                 <div className="px-6 md:px-16 py-6 flex items-center gap-6">
@@ -176,29 +207,34 @@ export default function AdminCreateEvent() {
             </header>
 
             {/* Form */}
-            <div className="px-6 md:px-16 py-12 max-w-2xl">
-                <form onSubmit={handleSubmit} className="space-y-8">
+            <div className="px-6 md:px-16 py-12 max-w-2xl mx-auto">
+                <form onSubmit={hookFormSubmit(onSubmit)} className="space-y-8">
                     <div className="space-y-2">
                         <Label htmlFor="title" className="text-sm text-muted-foreground">Event Title *</Label>
                         <Input
                             id="title"
                             placeholder="e.g. Annual Tech Conference"
-                            className="h-11 bg-transparent border-border"
-                            value={title}
-                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTitle(e.target.value)}
-                            required
+                            className={`h-11 bg-transparent ${errors.title ? 'border-red-500 focus-visible:ring-red-500' : 'border-border'}`}
+                            {...register('title')}
                         />
+                        {errors.title && <p className="text-xs text-red-500">{errors.title.message}</p>}
                     </div>
 
-                    <div className="space-y-2">
-                        <Label htmlFor="description" className="text-sm text-muted-foreground">Description</Label>
-                        <textarea
-                            id="description"
-                            placeholder="Describe the event..."
-                            className="flex w-full border border-border bg-transparent px-3 py-2 text-sm min-h-[120px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                            value={description}
-                            onChange={(e) => setDescription(e.target.value)}
+                    <div className="space-y-2 relative">
+                        <Label htmlFor="description" className="text-sm text-muted-foreground">Description (Rich Text)</Label>
+                        <Controller
+                            name="description"
+                            control={control}
+                            render={({ field }) => (
+                                <ReactQuill
+                                    theme="snow"
+                                    value={field.value || ''}
+                                    onChange={field.onChange}
+                                    className="bg-transparent rounded-md [&_.ql-container]:min-h-[150px] [&_.ql-container]:text-base [&_.ql-editor]:min-h-[150px]"
+                                />
+                            )}
                         />
+                        {errors.description && <p className="text-xs text-red-500">{errors.description.message}</p>}
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
@@ -207,37 +243,35 @@ export default function AdminCreateEvent() {
                             <Input
                                 id="date"
                                 type="datetime-local"
-                                className="h-11 bg-transparent border-border"
-                                value={date}
-                                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDate(e.target.value)}
-                                required
+                                className={`h-11 bg-transparent ${errors.date ? 'border-red-500 focus-visible:ring-red-500' : 'border-border'}`}
+                                {...register('date')}
                             />
+                            {errors.date && <p className="text-xs text-red-500">{errors.date.message}</p>}
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="location" className="text-sm text-muted-foreground">Location *</Label>
                             <Input
                                 id="location"
                                 placeholder="e.g. Main Auditorium"
-                                className="h-11 bg-transparent border-border"
-                                value={location}
-                                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setLocation(e.target.value)}
-                                required
+                                className={`h-11 bg-transparent ${errors.location ? 'border-red-500 focus-visible:ring-red-500' : 'border-border'}`}
+                                {...register('location')}
                             />
+                            {errors.location && <p className="text-xs text-red-500">{errors.location.message}</p>}
                         </div>
                     </div>
 
                     {/* Cover Image Section */}
                     <div className="space-y-4">
-                        <Label className="text-sm text-muted-foreground">Cover Image</Label>
+                        <Label className="text-sm text-muted-foreground">Cover Image *</Label>
 
                         {displayImage ? (
                             <div className="space-y-3">
-                                <div className="relative aspect-video w-full max-w-md overflow-hidden bg-muted">
+                                <div className="relative aspect-video w-full max-w-md overflow-hidden bg-muted rounded-md border border-border">
                                     <img src={displayImage} alt="Cover preview" className="w-full h-full object-cover" />
                                     <button
                                         type="button"
                                         onClick={clearImage}
-                                        className="absolute top-2 right-2 w-8 h-8 bg-black/60 hover:bg-black/80 text-white flex items-center justify-center transition-colors border-0"
+                                        className="absolute top-2 right-2 w-8 h-8 bg-black/60 hover:bg-black/80 text-white flex items-center justify-center transition-colors border-0 rounded-full"
                                     >
                                         <X className="w-4 h-4" />
                                     </button>
@@ -253,20 +287,21 @@ export default function AdminCreateEvent() {
                                 onDragLeave={handleDragLeave}
                                 onClick={() => fileInputRef.current?.click()}
                                 className={`
-                                    border-2 border-dashed transition-colors cursor-pointer
+                                    border-2 border-dashed transition-colors cursor-pointer rounded-lg
                                     flex flex-col items-center justify-center py-12 px-6
-                                    ${dragOver ? 'border-primary bg-primary/5' : 'border-border hover:border-muted-foreground'}
+                                    ${imageError ? 'border-red-500 hover:border-red-600' : dragOver ? 'border-primary bg-primary/5' : 'border-border hover:border-muted-foreground'}
                                 `}
                             >
-                                <Upload className="w-8 h-8 text-muted-foreground mb-3" />
-                                <p className="text-sm text-foreground font-medium mb-1">
+                                <Upload className={`w-8 h-8 mb-3 ${imageError ? 'text-red-500' : 'text-muted-foreground'}`} />
+                                <p className={`text-sm font-medium mb-1 ${imageError ? 'text-red-500' : 'text-foreground'}`}>
                                     Drop an image here or click to select
                                 </p>
-                                <p className="text-xs text-muted-foreground">
+                                <p className={`text-xs ${imageError ? 'text-red-500' : 'text-muted-foreground'}`}>
                                     Image will be uploaded when you submit the form
                                 </p>
                             </div>
                         )}
+                        {imageError && <p className="text-xs text-red-500 mt-1">{imageError}</p>}
 
                         <input
                             ref={fileInputRef}
@@ -283,13 +318,14 @@ export default function AdminCreateEvent() {
                             <div className="h-px flex-1 bg-border" />
                         </div>
                         <div className="flex items-center gap-2">
-                            <ImageIcon className="w-4 h-4 text-muted-foreground shrink-0" />
+                            <ImageIcon className={`w-4 h-4 shrink-0 ${selectedFile ? 'text-muted-foreground/50' : 'text-muted-foreground'}`} />
                             <Input
                                 placeholder="https://d1234.cloudfront.net/uploads/image.jpg"
-                                className="h-9 bg-transparent border-border text-sm"
+                                className={`h-9 bg-transparent text-sm ${imageError && !imageUrl ? 'border-red-500 focus-visible:ring-red-500' : 'border-border'}`}
                                 value={imageUrl}
+                                disabled={!!selectedFile}
                                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                                    clearImage(); // prioritize manual URL over file selection
+                                    setImageError('');
                                     setImageUrl(e.target.value);
                                 }}
                             />
