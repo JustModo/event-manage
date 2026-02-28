@@ -65,9 +65,10 @@ export default function EventList() {
                                 </span>
                             </div>
                             <h3 className="text-lg font-semibold mb-1 group-hover:text-primary transition-colors">{event.title}</h3>
-                            <p className="text-sm text-muted-foreground line-clamp-2 mb-3">
-                                {event.description?.replace(/<[^>]*>?/gm, '') || ''}
-                            </p>
+                            <div
+                                className="text-sm text-muted-foreground line-clamp-2 mb-3 [&>p]:mb-0"
+                                dangerouslySetInnerHTML={{ __html: event.description || '' }}
+                            />
                             <span className="inline-flex items-center gap-1 text-xs font-medium text-primary opacity-0 group-hover:opacity-100 transition-opacity">
                                 View Details <ArrowRight className="w-3 h-3" />
                             </span>

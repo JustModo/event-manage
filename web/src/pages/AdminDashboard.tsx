@@ -134,9 +134,10 @@ export default function AdminDashboard() {
                                             {event.location}
                                         </span>
                                     </div>
-                                    <p className="text-sm text-muted-foreground line-clamp-1">
-                                        {event.description?.replace(/<[^>]*>?/gm, '') || ''}
-                                    </p>
+                                    <div
+                                        className="text-sm text-muted-foreground line-clamp-1 [&>p]:mb-0"
+                                        dangerouslySetInnerHTML={{ __html: event.description || '' }}
+                                    />
                                 </div>
 
                                 {/* Actions */}
